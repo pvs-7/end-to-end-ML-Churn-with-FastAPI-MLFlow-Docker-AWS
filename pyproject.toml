@@ -1,0 +1,21 @@
+[project]
+name = "end-to-end-ml-churn-with-fastapi-mlflow-docker-aws"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.142.2",
+    "great-expectations>=1.23.2",
+    "joblib>=1.6.0",
+    "mlflow>=3.16.1",
+    "numpy>=2.5.3",
+    "pandas>=3.0.6",
+    "pydantic>=2.13.5",
+    "pytest>=9.1.1",
+    "python-dotenv>=1.2.3",
+    "scikit-learn>=1.9.1",
+    "seaborn>=0.13.2",
+    "uvicorn>=0.54.0",
+    "xgboost>=3.4.1",
+]
