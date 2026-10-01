@@ -596,7 +596,7 @@ wheels = [
 [[package]]
 name = "end-to-end-ml-churn-with-fastapi-mlflow-docker-aws"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "great-expectations" },
