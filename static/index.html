@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#121a16">
+  <title>Churn Check | Telco Customer Intelligence</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #e7eee9;
+      --muted: #a2b0a7;
+      --line: #35443b;
+      --paper: #1c2821;
+      --canvas: #121a16;
+      --green: #70c99a;
+      --green-dark: #54b783;
+      --green-pale: #263d30;
+      --coral: #ff9a80;
+      --error: #ff938c;
+      --serif: Georgia, "Times New Roman", serif;
+      --sans: "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(135deg, rgba(112, 201, 154, .035) 25%, transparent 25%) 0 0 / 18px 18px,
+        var(--canvas);
+      color: var(--ink);
+      font-family: var(--sans);
+      font-size: 14px;
+    }
+
+    .topbar {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 clamp(20px, 5vw, 72px);
+      border-bottom: 1px solid rgba(231, 238, 233, .1);
+      background: rgba(28, 40, 33, .92);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      color: white;
+      background: var(--green);
+      border-radius: 9px 9px 9px 3px;
+      font-family: var(--serif);
+      font-size: 18px;
+    }
+
+    .service-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #70c99a;
+      box-shadow: 0 0 0 3px #263d30;
+    }
+
+    main {
+      width: min(1040px, calc(100% - 36px));
+      margin: 45px auto 72px;
+      animation: arrive .45s ease-out both;
+    }
+
+    .intro { margin-bottom: 27px; }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--green);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: clamp(32px, 5vw, 46px);
+      font-weight: 400;
+      line-height: 1.1;
+    }
+
+    .intro-copy {
+      margin: 10px 0 0;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 260px;
+      align-items: start;
+      gap: 18px;
+    }
+
+    .form-sheet, .result-panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 7px;
+    }
+
+    .form-sheet { padding: 26px clamp(18px, 3vw, 32px) 28px; }
+
+    fieldset {
+      min-width: 0;
+      margin: 0;
+      padding: 0 0 24px;
+      border: 0;
+    }
+
+    fieldset + fieldset {
+      padding-top: 23px;
+      border-top: 1px solid var(--line);
+    }
+
+    legend {
+      width: 100%;
+      margin-bottom: 16px;
+      padding: 0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .section-number {
+      display: inline-grid;
+      width: 22px;
+      height: 22px;
+      margin-right: 8px;
+      place-items: center;
+      color: var(--green);
+      background: var(--green-pale);
+      border-radius: 50%;
+      font-size: 11px;
+    }
+
+    .fields {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 15px 14px;
+    }
+
+    .field { min-width: 0; }
+
+    label {
+      display: block;
+      margin-bottom: 6px;
+      color: #d2ddd5;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input, select {
+      width: 100%;
+      height: 40px;
+      padding: 0 10px;
+      border: 1px solid #46564b;
+      border-radius: 4px;
+      outline: none;
+      background: #141d18;
+      color: var(--ink);
+      font: 13px var(--sans);
+    }
+
+    input:focus, select:focus {
+      border-color: var(--green);
+      box-shadow: 0 0 0 3px rgba(112, 201, 154, .16);
+    }
+
+    .field-hint {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    .form-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 21px;
+      border-top: 1px solid var(--line);
+    }
+
+    .footer-note { color: var(--muted); font-size: 11px; }
+
+    button {
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      padding: 0 17px;
+      border: 0;
+      border-radius: 4px;
+      background: var(--green);
+      color: #fff;
+      cursor: pointer;
+      font: 700 13px var(--sans);
+      transition: background .15s ease, transform .15s ease;
+    }
+
+    button:hover { background: var(--green-dark); transform: translateY(-1px); }
+    button:focus-visible { outline: 3px solid #70c99a; outline-offset: 2px; }
+    button:disabled { cursor: wait; opacity: .7; transform: none; }
+
+    .button-arrow { font-size: 17px; line-height: 1; }
+
+    .result-panel {
+      position: sticky;
+      top: 18px;
+      min-height: 202px;
+      padding: 21px;
+      overflow: hidden;
+    }
+
+    .result-panel::after {
+      position: absolute;
+      right: -32px;
+      bottom: -48px;
+      width: 120px;
+      height: 120px;
+      border: 1px solid rgba(112, 201, 154, .16);
+      border-radius: 50%;
+      content: "";
+      pointer-events: none;
+    }
+
+    .result-kicker {
+      margin: 0 0 25px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+
+    .result-symbol {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      margin-bottom: 13px;
+      border-radius: 50%;
+      background: #29362e;
+      color: #a2b0a7;
+      font-size: 19px;
+    }
+
+    .result-label {
+      margin: 0;
+      font-family: var(--serif);
+      font-size: 26px;
+      font-weight: 400;
+      line-height: 1.2;
+    }
+
+    .result-detail {
+      min-height: 34px;
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    .result-panel[data-state="yes"] .result-symbol { background: #432d27; color: var(--coral); }
+    .result-panel[data-state="yes"] .result-label { color: #ffad96; }
+    .result-panel[data-state="no"] .result-symbol { background: var(--green-pale); color: var(--green); }
+    .result-panel[data-state="error"] .result-label { color: var(--error); }
+
+    .privacy-note {
+      display: flex;
+      gap: 9px;
+      margin: 13px 2px 0;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .privacy-icon { color: var(--green); font-weight: 700; }
+
+    @keyframes arrive {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 760px) {
+      main { margin-top: 30px; }
+      .workspace { grid-template-columns: minmax(0, 1fr); }
+      .result-panel { position: static; min-height: 0; }
+      .result-kicker { margin-bottom: 15px; }
+      .result-symbol { float: left; margin: 0 12px 0 0; }
+      .result-label { padding-top: 1px; }
+      .result-detail { margin-left: 50px; }
+    }
+
+    @media (max-width: 560px) {
+      .topbar { min-height: 58px; padding-inline: 18px; }
+      .service-status { font-size: 0; }
+      .service-status .status-dot { margin-right: 2px; }
+      main { width: min(100% - 24px, 1040px); margin: 25px auto 42px; }
+      .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; }
+      .form-sheet { padding: 21px 15px 19px; }
+      .form-footer { align-items: flex-start; flex-direction: column; }
+      .form-footer button { width: 100%; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">T</span> Telco customer intelligence</div>
+    <div class="service-status"><span class="status-dot" aria-hidden="true"></span> Prediction service</div>
+  </header>
+
+  <main>
+    <section class="intro" aria-labelledby="page-title">
+      <p class="eyebrow">Retention analytics / Individual assessment</p>
+      <h1 id="page-title">Churn check</h1>
+      <p class="intro-copy">Enter a customer's account and service details to get a churn prediction.</p>
+    </section>
+
+    <div class="workspace">
+      <form class="form-sheet" id="customer-form">
+        <fieldset>
+          <legend><span class="section-number">01</span>Customer profile</legend>
+          <div class="fields">
+            <div class="field">
+              <label for="customerID">Customer ID</label>
+              <input id="customerID" name="customerID" type="text" autocomplete="off" placeholder="Optional reference">
+              <p class="field-hint">For your reference only; not sent for prediction.</p>
+            </div>
+            <div class="field">
+              <label for="gender">Gender</label>
+              <select id="gender" name="gender" required><option>Female</option><option>Male</option></select>
+            </div>
+            <div class="field">
+              <label for="SeniorCitizen">Senior citizen</label>
+              <select id="SeniorCitizen" name="SeniorCitizen" required><option value="0">No</option><option value="1">Yes</option></select>
+            </div>
+            <div class="field">
+              <label for="Partner">Partner</label>
+              <select id="Partner" name="Partner" required><option>Yes</option><option>No</option></select>
+            </div>
+            <div class="field">
+              <label for="Dependents">Dependents</label>
+              <select id="Dependents" name="Dependents" required><option>No</option><option>Yes</option></select>
+            </div>
+            <div class="field">
+              <label for="tenure">Tenure (months)</label>
+              <input id="tenure" name="tenure" type="number" min="0" step="1" value="12" required>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><span class="section-number">02</span>Services</legend>
+          <div class="fields">
+            <div class="field">
+              <label for="PhoneService">Phone service</label>
+              <select id="PhoneService" name="PhoneService" required><option>Yes</option><option>No</option></select>
+            </div>
+            <div class="field">
+              <label for="MultipleLines">Multiple lines</label>
+              <select id="MultipleLines" name="MultipleLines" required><option>No</option><option>Yes</option><option>No phone service</option></select>
+            </div>
+            <div class="field">
+              <label for="InternetService">Internet service</label>
+              <select id="InternetService" name="InternetService" required><option>Fiber optic</option><option>DSL</option><option>No</option></select>
+            </div>
+            <div class="field">
+              <label for="OnlineSecurity">Online security</label>
+              <select id="OnlineSecurity" name="OnlineSecurity" required><option>No</option><option>Yes</option><option>No internet service</option></select>
+            </div>
+            <div class="field">
+              <label for="OnlineBackup">Online backup</label>
+              <select id="OnlineBackup" name="OnlineBackup" required><option>No</option><option>Yes</option><option>No internet service</option></select>
+            </div>
+            <div class="field">
+              <label for="DeviceProtection">Device protection</label>
+              <select id="DeviceProtection" name="DeviceProtection" required><option>No</option><option>Yes</option><option>No internet service</option></select>
+            </div>
+            <div class="field">
+              <label for="TechSupport">Tech support</label>
+              <select id="TechSupport" name="TechSupport" required><option>No</option><option>Yes</option><option>No internet service</option></select>
+            </div>
+            <div class="field">
+              <label for="StreamingTV">Streaming TV</label>
+              <select id="StreamingTV" name="StreamingTV" required><option>No</option><option>Yes</option><option>No internet service</option></select>
+            </div>
+            <div class="field">
+              <label for="StreamingMovies">Streaming movies</label>
+              <select id="StreamingMovies" name="StreamingMovies" required><option>No</option><option>Yes</option><option>No internet service</option></select>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend><span class="section-number">03</span>Billing &amp; contract</legend>
+          <div class="fields">
+            <div class="field">
+              <label for="Contract">Contract</label>
+              <select id="Contract" name="Contract" required><option>Month-to-month</option><option>One year</option><option>Two year</option></select>
+            </div>
+            <div class="field">
+              <label for="PaperlessBilling">Paperless billing</label>
+              <select id="PaperlessBilling" name="PaperlessBilling" required><option>Yes</option><option>No</option></select>
+            </div>
+            <div class="field">
+              <label for="PaymentMethod">Payment method</label>
+              <select id="PaymentMethod" name="PaymentMethod" required>
+                <option>Electronic check</option>
+                <option>Mailed check</option>
+                <option>Bank transfer (automatic)</option>
+                <option>Credit card (automatic)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="MonthlyCharges">Monthly charges</label>
+              <input id="MonthlyCharges" name="MonthlyCharges" type="number" min="0" step="0.01" value="70.00" required>
+            </div>
+            <div class="field">
+              <label for="TotalCharges">Total charges</label>
+              <input id="TotalCharges" name="TotalCharges" type="number" min="0" step="0.01" value="840.00" required>
+            </div>
+          </div>
+        </fieldset>
+
+        <div class="form-footer">
+          <span class="footer-note">All account and service fields are required.</span>
+          <button id="submit-button" type="submit"><span>Run prediction</span><span class="button-arrow" aria-hidden="true">&#8594;</span></button>
+        </div>
+      </form>
+
+      <aside>
+        <section class="result-panel" id="result-panel" data-state="empty" aria-live="polite" aria-atomic="true">
+          <p class="result-kicker">Prediction result</p>
+          <div class="result-symbol" id="result-symbol" aria-hidden="true">&#8212;</div>
+          <h2 class="result-label" id="result-label">Awaiting details</h2>
+          <p class="result-detail" id="result-detail">Your customer's result will appear here.</p>
+        </section>
+        <p class="privacy-note"><span class="privacy-icon" aria-hidden="true">i</span><span>Customer ID stays in this form and is never included in the prediction request.</span></p>
+      </aside>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById("customer-form");
+    const button = document.getElementById("submit-button");
+    const panel = document.getElementById("result-panel");
+    const resultLabel = document.getElementById("result-label");
+    const resultDetail = document.getElementById("result-detail");
+    const resultSymbol = document.getElementById("result-symbol");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formValues = Object.fromEntries(new FormData(form).entries());
+      const customerID = formValues.customerID;
+      delete formValues.customerID;
+      const payload = {
+        ...formValues,
+        SeniorCitizen: Number(formValues.SeniorCitizen),
+        tenure: Number(formValues.tenure),
+        MonthlyCharges: Number(formValues.MonthlyCharges),
+        TotalCharges: Number(formValues.TotalCharges)
+      };
+
+      button.disabled = true;
+      button.querySelector("span").textContent = "Predicting...";
+      panel.dataset.state = "loading";
+      resultSymbol.textContent = "...";
+      resultLabel.textContent = "Running prediction";
+      resultDetail.textContent = "Sending account details to the model.";
+
+      try {
+        const response = await fetch("/predict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          const message = result.detail || "The prediction request could not be completed.";
+          throw new Error(typeof message === "string" ? message : "Please check the submitted customer details.");
+        }
+        if (result.churn_label !== "Yes" && result.churn_label !== "No") {
+          throw new Error("The API response did not include a valid churn result.");
+        }
+
+        panel.dataset.state = result.churn_label.toLowerCase();
+        resultSymbol.textContent = result.churn_label === "Yes" ? "!" : "✓";
+        resultLabel.textContent = result.churn_label === "Yes" ? "Churn predicted" : "No churn predicted";
+        resultDetail.textContent = customerID
+          ? `Customer ${customerID} · Churn label: ${result.churn_label}`
+          : `Churn label: ${result.churn_label}`;
+      } catch (error) {
+        panel.dataset.state = "error";
+        resultSymbol.textContent = "!";
+        resultLabel.textContent = "Prediction unavailable";
+        resultDetail.textContent = error.message || "Could not connect to the prediction service.";
+      } finally {
+        button.disabled = false;
+        button.querySelector("span").textContent = "Run prediction";
+      }
+    });
+  </script>
+</body>
+</html>
