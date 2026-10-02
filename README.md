@@ -18,6 +18,10 @@ MLflow run and model artifact
 FastAPI prediction endpoint and web form
 ```
 
+## Data Source
+
+This project uses the [Telco Customer Churn dataset](https://www.kaggle.com/datasets/blastchar/telco-customer-churn/data), published on Kaggle by Blastchar. The raw CSV used by the project is [`data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv`](data/raw/WA_Fn-UseC_-Telco-Customer-Churn.csv).
+
 ## Notebook and Modularization
 
 [`notebooks/EDA.ipynb`](notebooks/EDA.ipynb) is the exploratory workspace. It loads the raw Telco CSV, inspects columns, data types, missing values, and churn balance, and explores churn rates across customer and service attributes. It also investigates data-cleaning choices such as converting `TotalCharges` and handling blank charges for zero-tenure customers, and compares candidate classifiers with cross-validation metrics. Since churn is imbalanced and the business goal is to identify customers likely to leave, the notebook considers recall, precision, F1, ROC-AUC, and PR-AUC rather than accuracy alone. Later experiments examine feature engineering and the effect of choosing a decision threshold using contact limits and estimated campaign value.
