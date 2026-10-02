@@ -282,13 +282,34 @@
     }
 
     .result-detail {
-      min-height: 34px;
+      min-height: 18px;
       margin: 8px 0 0;
       color: var(--muted);
       font-size: 12px;
       line-height: 1.5;
       overflow-wrap: anywhere;
     }
+
+    .result-metrics {
+      display: grid;
+      gap: 11px;
+      margin: 17px 0 0;
+      padding-top: 14px;
+      border-top: 1px solid var(--line);
+    }
+
+    .result-metrics[hidden] { display: none; }
+
+    .metric-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .metric-row dt { color: var(--muted); }
+    .metric-row dd { margin: 0; color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
 
     .result-panel[data-state="yes"] .result-symbol { background: #432d27; color: var(--coral); }
     .result-panel[data-state="yes"] .result-label { color: #ffad96; }
@@ -468,6 +489,12 @@
           <div class="result-symbol" id="result-symbol" aria-hidden="true">&#8212;</div>
           <h2 class="result-label" id="result-label">Awaiting details</h2>
           <p class="result-detail" id="result-detail">Your customer's result will appear here.</p>
+          <dl class="result-metrics" id="result-metrics" hidden>
+            <div class="metric-row"><dt>Churn probability</dt><dd id="metric-probability"></dd></div>
+            <div class="metric-row"><dt>Churn prediction</dt><dd id="metric-prediction"></dd></div>
+            <div class="metric-row"><dt>Churn label</dt><dd id="metric-label"></dd></div>
+            <div class="metric-row"><dt>Threshold</dt><dd id="metric-threshold"></dd></div>
+          </dl>
         </section>
         <p class="privacy-note"><span class="privacy-icon" aria-hidden="true">i</span><span>Customer ID stays in this form and is never included in the prediction request.</span></p>
       </aside>
@@ -481,6 +508,7 @@
     const resultLabel = document.getElementById("result-label");
     const resultDetail = document.getElementById("result-detail");
     const resultSymbol = document.getElementById("result-symbol");
+    const resultMetrics = document.getElementById("result-metrics");
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -498,6 +526,7 @@
       button.disabled = true;
       button.querySelector("span").textContent = "Predicting...";
       panel.dataset.state = "loading";
+      resultMetrics.hidden = true;
       resultSymbol.textContent = "...";
       resultLabel.textContent = "Running prediction";
       resultDetail.textContent = "Sending account details to the model.";
@@ -513,13 +542,23 @@
           const message = result.detail || "The prediction request could not be completed.";
           throw new Error(typeof message === "string" ? message : "Please check the submitted customer details.");
         }
-        if (result.churn_label !== "Yes" && result.churn_label !== "No") {
-          throw new Error("The API response did not include a valid churn result.");
+        if (
+          (result.churn_label !== "Yes" && result.churn_label !== "No") ||
+          !Number.isFinite(result.churn_probability) ||
+          !Number.isInteger(result.churn_prediction) ||
+          !Number.isFinite(result.threshold)
+        ) {
+          throw new Error("The API response did not include all valid prediction values.");
         }
 
         panel.dataset.state = result.churn_label.toLowerCase();
         resultSymbol.textContent = result.churn_label === "Yes" ? "!" : "✓";
         resultLabel.textContent = result.churn_label === "Yes" ? "Churn predicted" : "No churn predicted";
+        document.getElementById("metric-probability").textContent = `${(result.churn_probability * 100).toFixed(1)}%`;
+        document.getElementById("metric-prediction").textContent = result.churn_prediction;
+        document.getElementById("metric-label").textContent = result.churn_label;
+        document.getElementById("metric-threshold").textContent = `${(result.threshold * 100).toFixed(1)}%`;
+        resultMetrics.hidden = false;
         resultDetail.textContent = customerID
           ? `Customer ${customerID} · Churn label: ${result.churn_label}`
           : `Churn label: ${result.churn_label}`;

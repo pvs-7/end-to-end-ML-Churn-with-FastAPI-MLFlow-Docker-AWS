@@ -16,8 +16,8 @@ def predict_customer(
     prediction = int(probability >= threshold)
 
     return {
-        #"churn_probability": probability,
-        #"churn_prediction": prediction,
+        "churn_probability": probability,
+        "churn_prediction": prediction,
         "churn_label": "Yes" if prediction else "No",
-        #"threshold": threshold,
+        "threshold": threshold,
     }

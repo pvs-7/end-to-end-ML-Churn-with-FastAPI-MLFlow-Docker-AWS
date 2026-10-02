@@ -4,6 +4,8 @@ import mlflow
 import pandas as pd
 from dotenv import load_dotenv
 
+from churn_ml.features.engineering import engineer_features
+
 
 def load_model():
     load_dotenv()
@@ -17,9 +19,9 @@ def load_model():
 
     mlflow.set_tracking_uri(tracking_uri)
 
-    model_uri = "models:/your_model/latest"
-
-    return mlflow.sklearn.load_model(model_uri)
+    model_id = os.environ["MODEL_ID"]
+    
+    return mlflow.sklearn.load_model( f"models:/{model_id}")
 
 
 def predict_customer(
@@ -28,8 +30,9 @@ def predict_customer(
     threshold: float = 0.77,
 ):
     df = pd.DataFrame([customer])
+    features = engineer_features(df)
 
-    probability = model.predict_proba(df)[0, 1]
+    probability = model.predict_proba(features)[0, 1]
 
     prediction = int(
         probability >= threshold

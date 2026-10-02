@@ -1,16 +1,25 @@
 from contextlib import asynccontextmanager
-import os
+import json
 from pathlib import Path
 from typing import Literal
 import mlflow
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
 from churn_ml.inference.pipeline import predict_customer
 
-load_dotenv()
+# mlflow model artifacts
+MODEL_PATH = (
+    Path(__file__).resolve().parent.parent
+    / "models"
+    / "churn_model"
+)
+
+METADATA_PATH =  (
+    Path(__file__).resolve().parent.parent
+    / "models" 
+    / "metadata.json"
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
@@ -18,25 +27,11 @@ STATIC_DIR = BASE_DIR / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
-    mlflow.set_tracking_uri(
-        os.environ["DAGSHUB_MLFLOW_TRACKING_URI"]
-    )
+    app.state.model = mlflow.sklearn.load_model(str(MODEL_PATH))
+    with open(METADATA_PATH, "r", encoding="utf-8") as f:
+        metadata = json.load(f)
 
-    # Get the selected model run
-    run_id = os.environ["CHURN_RUN_ID"]
-    model_id = os.environ["MODEL_ID"]
-
-    # Load model
-    app.state.model = mlflow.sklearn.load_model(
-        f"models:/{model_id}"
-    )
-
-    # Retrieve threshold from the same run
-    run = mlflow.get_run(run_id)
-
-    app.state.threshold = float(
-        run.data.params["selected_threshold"]
-    )
+    app.state.threshold = float(metadata["threshold"])
 
     yield
 
