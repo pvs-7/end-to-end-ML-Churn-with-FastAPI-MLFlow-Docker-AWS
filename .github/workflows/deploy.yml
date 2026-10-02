@@ -52,8 +52,15 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install MLflow
-        run: pip install mlflow
+      - name: Install model dependencies
+        run: |
+          pip install \
+            mlflow \
+            xgboost \
+            scikit-learn \
+            pandas \
+            numpy \
+            skops
 
       - name: Download model from DagsHub
         env:
