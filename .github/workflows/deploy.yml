@@ -47,6 +47,82 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install MLflow
+        run: pip install mlflow
+
+      - name: Download model from DagsHub
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.DAGSHUB_MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+          MODEL_ID: ${{ secrets.MODEL_ID }}
+        run: |
+          mkdir -p models/churn_model
+
+          python - <<'PY'
+          import os
+          import shutil
+          import mlflow
+          import mlflow.sklearn
+
+          mlflow.set_tracking_uri(
+              os.environ["MLFLOW_TRACKING_URI"]
+          )
+
+          model_id = os.environ["MODEL_ID"]
+          model_uri = f"models:/{model_id}"
+
+          print(f"Downloading model from: {model_uri}")
+
+          local_path = mlflow.artifacts.download_artifacts(
+              artifact_uri=model_uri
+          )
+
+          print(f"Model downloaded to: {local_path}")
+
+          shutil.copytree(
+              local_path,
+              "models/churn_model",
+              dirs_exist_ok=True,
+          )
+          PY
+
+      - name: Check downloaded model
+        run: |
+          echo "Downloaded model files:"
+          find models -maxdepth 3 -type f -print
+
+      - name: Verify model can be loaded
+        env:
+          MLFLOW_TRACKING_URI: ${{ secrets.DAGSHUB_MLFLOW_TRACKING_URI }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_TRACKING_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_TRACKING_PASSWORD }}
+          MODEL_ID: ${{ secrets.MODEL_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          import mlflow
+          import mlflow.sklearn
+
+          mlflow.set_tracking_uri(
+              os.environ["MLFLOW_TRACKING_URI"]
+          )
+
+          model_id = os.environ["MODEL_ID"]
+
+          model = mlflow.sklearn.load_model(
+              f"models:/{model_id}"
+          )
+
+          print("Model loaded successfully.")
+          print(f"Model type: {type(model)}")
+          PY
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
