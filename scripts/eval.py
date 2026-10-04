@@ -27,7 +27,7 @@ def load_model():
 def predict_customer(
     model,
     customer: dict,
-    threshold: float = 0.77,
+    threshold: float = 0.08,
 ):
     df = pd.DataFrame([customer])
     features = engineer_features(df)

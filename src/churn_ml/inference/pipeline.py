@@ -5,7 +5,7 @@ from churn_ml.features.engineering import engineer_features
 def predict_customer(
     customer_data: dict,
     model,
-    threshold: float = 0.77,
+    threshold: float = 0.08,
 ) -> dict:
     customer_df = pd.DataFrame([customer_data])
 

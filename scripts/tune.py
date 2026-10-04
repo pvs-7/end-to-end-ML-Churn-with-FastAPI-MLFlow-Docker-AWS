@@ -1,11 +1,14 @@
 from pathlib import Path
 import os
 
+import matplotlib.pyplot as plt
 import mlflow
+import mlflow.sklearn
+import numpy as np
 import optuna
 from dotenv import load_dotenv
-
 from sklearn.metrics import (
+    ConfusionMatrixDisplay,
     accuracy_score,
     average_precision_score,
     confusion_matrix,
@@ -16,24 +19,19 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import (
     StratifiedKFold,
-    cross_val_score,
     cross_val_predict,
+    cross_val_score,
     train_test_split,
 )
 
 from churn_ml.data.loader import load_data
-from churn_ml.validation.validator import validate_data
-from churn_ml.preprocessing.cleaning import clean_data
 from churn_ml.features.engineering import engineer_features
-from churn_ml.modeling.model import build_pipeline
+from churn_ml.modeling.model import build_logistic_regression_pipeline
+from churn_ml.preprocessing.cleaning import clean_data
+from churn_ml.validation.validator import validate_data
 
-
-# ---------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-
 DATA_PATH = (
     PROJECT_ROOT
     / "data"
@@ -43,258 +41,143 @@ DATA_PATH = (
 
 TEST_SIZE = 0.20
 RANDOM_STATE = 42
+N_TRIALS = 150
+INNER_SPLITS = 5
+EXPERIMENT_NAME = "Telco Churn - Logistic Regression"
 
-SCALE_POS_WEIGHT = 2.76856
+CONTACT_COST = 120.0
+SAVE_RATE = 0.45
+THRESHOLDS = np.linspace(0.05, 0.95, 91)
 
-N_TRIALS = 50
-
-EXPERIMENT_NAME = "telco-churn"
-
-
-# Business assumptions
-CONTACT_COST = 10
-SAVE_RATE = 0.25
-RETAINED_CUSTOMER_VALUE = 200
-MAX_CONTACTS = 1000
-
-
-# ---------------------------------------------------------------------
-# Data
-# ---------------------------------------------------------------------
 
 def prepare_data():
-
     df = load_data(DATA_PATH)
-
     df = validate_data(df)
-
     df = clean_data(df)
-
     df = engineer_features(df)
 
     X = df.drop(columns=["Churn"])
     y = df["Churn"]
-
     return df, X, y
 
 
-# ---------------------------------------------------------------------
-# Optuna
-# ---------------------------------------------------------------------
-
 def create_objective(X_train, y_train):
-
     cv = StratifiedKFold(
-        n_splits=5,
+        n_splits=INNER_SPLITS,
         shuffle=True,
         random_state=RANDOM_STATE,
     )
 
     def objective(trial):
-
         params = {
-            "n_estimators": trial.suggest_int(
-                "n_estimators",
-                200,
-                800,
-            ),
-            "learning_rate": trial.suggest_float(
-                "learning_rate",
-                0.01,
-                0.2,
-                log=True,
-            ),
-            "max_depth": trial.suggest_int(
-                "max_depth",
-                3,
-                8,
-            ),
-            "subsample": trial.suggest_float(
-                "subsample",
-                0.6,
-                1.0,
-            ),
-            "colsample_bytree": trial.suggest_float(
-                "colsample_bytree",
-                0.6,
-                1.0,
-            ),
-            "min_child_weight": trial.suggest_int(
-                "min_child_weight",
-                1,
-                10,
-            ),
-            "gamma": trial.suggest_float(
-                "gamma",
-                0,
-                5,
-            ),
-            "reg_alpha": trial.suggest_float(
-                "reg_alpha",
-                1e-8,
-                5,
-                log=True,
-            ),
-            "reg_lambda": trial.suggest_float(
-                "reg_lambda",
-                1e-8,
-                5,
-                log=True,
+            "C": trial.suggest_float("C", 1e-3, 1e3, log=True),
+            "class_weight": trial.suggest_categorical(
+                "class_weight",
+                [None, "balanced"],
             ),
         }
-
-        pipeline = build_pipeline(
-            scale_pos_weight=SCALE_POS_WEIGHT
-        )
-
-        # Apply Optuna parameters to the XGBoost step.
-        pipeline.set_params(
-            **{
-                f"model__{key}": value
-                for key, value in params.items()
-            }
-        )
-
+        pipeline = build_logistic_regression_pipeline(**params)
         scores = cross_val_score(
             pipeline,
             X_train,
             y_train,
             cv=cv,
-            scoring="recall",
+            scoring="average_precision",
             n_jobs=-1,
         )
-
-        return scores.mean()
+        return float(scores.mean())
 
     return objective
 
 
-# ---------------------------------------------------------------------
-# Threshold selection
-# ---------------------------------------------------------------------
+def campaign_metrics(y_true, y_pred, monthly_charges):
+    y_true = np.asarray(y_true, dtype=int)
+    y_pred = np.asarray(y_pred, dtype=int)
+    ltv = np.asarray(monthly_charges, dtype=float) * 12
+
+    is_tp = (y_true == 1) & (y_pred == 1)
+    is_fp = (y_true == 0) & (y_pred == 1)
+    is_fn = (y_true == 1) & (y_pred == 0)
+    tn, fp, fn, tp = confusion_matrix(
+        y_true,
+        y_pred,
+        labels=[0, 1],
+    ).ravel()
+    contacts = tp + fp
+
+    true_positive_gain = float(
+        np.sum(ltv[is_tp] * SAVE_RATE)
+        - np.sum(is_tp) * CONTACT_COST
+    )
+    false_positive_loss = float(fp * CONTACT_COST)
+    false_negative_loss = float(np.sum(ltv[is_fn]))
+
+    return {
+        "contacts": int(contacts),
+        "contact_rate": float(contacts / len(y_true)),
+        "tp": int(tp),
+        "fp": int(fp),
+        "tn": int(tn),
+        "fn": int(fn),
+        "true_positive_gain": true_positive_gain,
+        "false_positive_loss": false_positive_loss,
+        "false_negative_loss": false_negative_loss,
+        "campaign_cost": float(contacts * CONTACT_COST),
+        "total_tp_ltv": float(np.sum(ltv[is_tp])),
+        "expected_retained_value": float(
+            np.sum(ltv[is_tp]) * SAVE_RATE
+        ),
+        "total_fn_ltv": float(np.sum(ltv[is_fn])),
+        "net_value": float(
+            true_positive_gain
+            - false_positive_loss
+            - false_negative_loss
+        ),
+    }
+
 
 def select_threshold(
     y_true,
     probabilities,
-    max_contacts=MAX_CONTACTS,
-    contact_cost=CONTACT_COST,
-    save_rate=SAVE_RATE,
-    retained_customer_value=RETAINED_CUSTOMER_VALUE,
+    monthly_charges,
 ):
-    """
-    Select threshold using only training OOF predictions.
-
-    Objective:
-        maximize expected net business value
-
-    Constraint:
-        contacts <= max_contacts
-    """
-
-    thresholds = sorted(
-        set(probabilities)
-    )
-
     best_result = None
+    best_threshold = None
 
-    for threshold in thresholds:
-
-        predictions = (
-            probabilities >= threshold
-        ).astype(int)
-
-        tn, fp, fn, tp = confusion_matrix(
+    for threshold in THRESHOLDS:
+        predictions = (probabilities >= threshold).astype(int)
+        result = campaign_metrics(
             y_true,
             predictions,
-            labels=[0, 1],
-        ).ravel()
-
-        contacts = tp + fp
-
-        if contacts > max_contacts:
-            continue
-
-        expected_saved = tp * save_rate
-
-        campaign_cost = (
-            contacts * contact_cost
+            monthly_charges,
         )
+        if best_result is None or result["net_value"] > best_result["net_value"]:
+            best_result = result
+            best_threshold = float(threshold)
 
-        retained_value = (
-            expected_saved
-            * retained_customer_value
-        )
+    if best_result is None or best_threshold is None:
+        raise RuntimeError("Threshold search did not produce a result.")
 
-        net_value = (
-            retained_value
-            - campaign_cost
-        )
-
-        if (
-            best_result is None
-            or net_value > best_result["net_value"]
-        ):
-            best_result = {
-                "threshold": threshold,
-                "contacts": contacts,
-                "tp": tp,
-                "fp": fp,
-                "tn": tn,
-                "fn": fn,
-                "recall": recall_score(
-                    y_true,
-                    predictions,
-                    zero_division=0,
-                ),
-                "precision": precision_score(
-                    y_true,
-                    predictions,
-                    zero_division=0,
-                ),
-                "expected_saved": expected_saved,
-                "campaign_cost": campaign_cost,
-                "retained_value": retained_value,
-                "net_value": net_value,
-            }
-
-    if best_result is None:
-        raise ValueError(
-            "No threshold satisfies the contact constraint."
-        )
-
+    best_result["threshold"] = best_threshold
+    best_result["recall"] = float(
+        recall_score(y_true, (probabilities >= best_threshold), zero_division=0)
+    )
+    best_result["precision"] = float(
+        precision_score(y_true, (probabilities >= best_threshold), zero_division=0)
+    )
     return best_result
 
 
-# ---------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------
-
 def main():
-
-    # -------------------------------------------------------------
-    # 1. Environment
-    # -------------------------------------------------------------
-
     load_dotenv(PROJECT_ROOT / ".env")
-
-    tracking_uri = os.getenv(
-        "DAGSHUB_MLFLOW_TRACKING_URI"
-    )
-
+    tracking_uri = os.getenv("DAGSHUB_MLFLOW_TRACKING_URI")
     if not tracking_uri:
-        raise ValueError(
-            "DAGSHUB_MLFLOW_TRACKING_URI is not set."
-        )
+        raise ValueError("DAGSHUB_MLFLOW_TRACKING_URI is not set.")
 
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(EXPERIMENT_NAME)
 
-    # -------------------------------------------------------------
-    # 2. Prepare data
-    # -------------------------------------------------------------
-
     df, X, y = prepare_data()
-
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
@@ -302,50 +185,26 @@ def main():
         random_state=RANDOM_STATE,
         stratify=y,
     )
-
-    # -------------------------------------------------------------
-    # 3. Create dataset lineage
-    # -------------------------------------------------------------
-
     dataset = mlflow.data.from_pandas(
         df,
         source=str(DATA_PATH),
         name="telco_churn_processed",
     )
 
-    # -------------------------------------------------------------
-    # 4. MLflow run
-    # -------------------------------------------------------------
-
-    with mlflow.start_run(
-        run_name="xgboost-optuna-tuning"
-    ):
-
-        mlflow.set_tag(
-            "run_type",
-            "hyperparameter_tuning",
-        )
-
-        mlflow.set_tag(
-            "model_type",
-            "XGBoost",
-        )
-
-        mlflow.set_tag(
-            "target",
-            "Churn",
-        )
-
-        mlflow.log_input(
-            dataset,
-            context="training",
-        )
-
-        # ---------------------------------------------------------
-        # 5. Log configuration
-        # ---------------------------------------------------------
-
+    with mlflow.start_run(run_name="LogisticRegression_nested_cv_final"):
+        mlflow.set_tags({
+            "model": "Logistic Regression",
+            "stage": "final_evaluation",
+            "preprocessing": (
+                "fold-fitted sklearn pipeline; scaled continuous features"
+            ),
+            "threshold_source": "training_oof_predictions",
+            "threshold_optimization": "business_net_value",
+            "business_value_method": "customer_specific_ltv",
+        })
+        mlflow.log_input(dataset, context="training")
         mlflow.log_params({
+            "model_type": "LogisticRegression",
             "dataset_name": DATA_PATH.name,
             "dataset_rows": len(df),
             "input_features": X.shape[1],
@@ -353,145 +212,62 @@ def main():
             "test_rows": len(X_test),
             "test_size": TEST_SIZE,
             "random_state": RANDOM_STATE,
-            "scale_pos_weight": SCALE_POS_WEIGHT,
-            "optuna_n_trials": N_TRIALS,
-            "cv_folds": 5,
-            "optimization_metric": "recall",
-            "max_contacts": MAX_CONTACTS,
+            "optuna_trials": N_TRIALS,
+            "inner_cv_splits": INNER_SPLITS,
+            "optimization_metric": "average_precision",
             "contact_cost": CONTACT_COST,
             "save_rate": SAVE_RATE,
-            "retained_customer_value": RETAINED_CUSTOMER_VALUE,
+            "ltv_definition": "MonthlyCharges * 12",
         })
-
-        # ---------------------------------------------------------
-        # 6. Optuna study
-        # ---------------------------------------------------------
 
         study = optuna.create_study(
             direction="maximize",
-            sampler=optuna.samplers.TPESampler(
-                seed=RANDOM_STATE
-            ),
+            sampler=optuna.samplers.TPESampler(seed=RANDOM_STATE),
         )
-
-        objective = create_objective(
-            X_train,
-            y_train,
-        )
-
-        print("Starting Optuna tuning...")
-
         study.optimize(
-            objective,
+            create_objective(X_train, y_train),
             n_trials=N_TRIALS,
         )
 
-        print("Optuna tuning complete.")
-
-        # ---------------------------------------------------------
-        # 7. Best parameters
-        # ---------------------------------------------------------
-
         best_params = study.best_params
-
-        print("\nBest parameters:")
-        for name, value in best_params.items():
-            print(f"{name}: {value}")
-
-        print(
-            f"\nBest CV recall: "
-            f"{study.best_value:.4f}"
-        )
-
-        mlflow.log_metric(
-            "best_cv_recall",
-            study.best_value,
-        )
-
-        mlflow.log_param(
-            "optuna_best_trial",
-            study.best_trial.number,
-        )
-
+        best_pipeline = build_logistic_regression_pipeline(**best_params)
         mlflow.log_params({
             f"best_{key}": value
             for key, value in best_params.items()
         })
+        mlflow.log_param("optuna_best_trial", study.best_trial.number)
+        mlflow.log_metric("best_training_cv_pr_auc", study.best_value)
 
-        # ---------------------------------------------------------
-        # 8. Build best pipeline
-        # ---------------------------------------------------------
-
-        best_pipeline = build_pipeline(
-            scale_pos_weight=SCALE_POS_WEIGHT
-        )
-
-        best_pipeline.set_params(
-            **{
-                f"model__{key}": value
-                for key, value in best_params.items()
-            }
-        )
-
-        # ---------------------------------------------------------
-        # 9. Generate OOF probabilities
-        # ---------------------------------------------------------
-
-        print("\nGenerating OOF probabilities...")
-
-        cv = StratifiedKFold(
-            n_splits=5,
+        threshold_cv = StratifiedKFold(
+            n_splits=INNER_SPLITS,
             shuffle=True,
-            random_state=RANDOM_STATE,
+            random_state=RANDOM_STATE + 100,
         )
-
         oof_probabilities = cross_val_predict(
             best_pipeline,
             X_train,
             y_train,
-            cv=cv,
+            cv=threshold_cv,
             method="predict_proba",
             n_jobs=-1,
         )[:, 1]
-
-        # ---------------------------------------------------------
-        # 10. Select business threshold
-        # ---------------------------------------------------------
-
+        oof_pr_auc = average_precision_score(y_train, oof_probabilities)
         threshold_result = select_threshold(
-            y_train,
+            y_train.to_numpy(),
             oof_probabilities,
+            X_train["MonthlyCharges"].to_numpy(dtype=float),
         )
-
         threshold = threshold_result["threshold"]
 
-        print("\nSelected threshold:")
-        print(f"Threshold: {threshold:.3f}")
-        print(
-            f"Contacts: {threshold_result['contacts']}"
-        )
-        print(
-            f"Recall: {threshold_result['recall']:.4f}"
-        )
-        print(
-            f"Precision: "
-            f"{threshold_result['precision']:.4f}"
-        )
-        print(
-            f"Expected net value: "
-            f"€{threshold_result['net_value']:,.2f}"
-        )
-
-        # ---------------------------------------------------------
-        # 11. Log threshold metrics
-        # ---------------------------------------------------------
-
-        mlflow.log_param(
-            "selected_threshold",
-            threshold,
-        )
-
+        mlflow.log_params({
+            "decision_threshold": threshold,
+            "selected_threshold": threshold,
+            "threshold_grid_min": float(THRESHOLDS.min()),
+            "threshold_grid_max": float(THRESHOLDS.max()),
+            "threshold_grid_steps": len(THRESHOLDS),
+        })
         mlflow.log_metrics({
+            "oof_pr_auc": oof_pr_auc,
             "oof_recall": threshold_result["recall"],
             "oof_precision": threshold_result["precision"],
             "oof_contacts": threshold_result["contacts"],
@@ -499,171 +275,79 @@ def main():
             "oof_fp": threshold_result["fp"],
             "oof_tn": threshold_result["tn"],
             "oof_fn": threshold_result["fn"],
-            "oof_expected_saved": threshold_result[
-                "expected_saved"
-            ],
-            "oof_campaign_cost": threshold_result[
-                "campaign_cost"
-            ],
-            "oof_retained_value": threshold_result[
-                "retained_value"
-            ],
-            "oof_net_value": threshold_result[
-                "net_value"
-            ],
+            "oof_net_value": threshold_result["net_value"],
         })
 
-        # ---------------------------------------------------------
-        # 12. Refit on ALL training data
-        # ---------------------------------------------------------
+        best_pipeline.fit(X_train, y_train)
+        test_probabilities = best_pipeline.predict_proba(X_test)[:, 1]
+        test_predictions = (test_probabilities >= threshold).astype(int)
 
-        print("\nTraining final model...")
-
-        best_pipeline.fit(
-            X_train,
-            y_train,
-        )
-
-        # ---------------------------------------------------------
-        # 13. Final test predictions
-        # ---------------------------------------------------------
-
-        test_probabilities = (
-            best_pipeline.predict_proba(
-                X_test
-            )[:, 1]
-        )
-
-        test_predictions = (
-            test_probabilities >= threshold
-        ).astype(int)
-
-        # ---------------------------------------------------------
-        # 14. Test metrics
-        # ---------------------------------------------------------
-
-        test_accuracy = accuracy_score(
-            y_test,
+        test_metrics = {
+            "test_accuracy": accuracy_score(y_test, test_predictions),
+            "test_precision": precision_score(
+                y_test,
+                test_predictions,
+                zero_division=0,
+            ),
+            "test_recall": recall_score(
+                y_test,
+                test_predictions,
+                zero_division=0,
+            ),
+            "test_f1": f1_score(
+                y_test,
+                test_predictions,
+                zero_division=0,
+            ),
+            "test_roc_auc": roc_auc_score(y_test, test_probabilities),
+            "test_pr_auc": average_precision_score(
+                y_test,
+                test_probabilities,
+            ),
+        }
+        test_business = campaign_metrics(
+            y_test.to_numpy(),
             test_predictions,
+            X_test["MonthlyCharges"].to_numpy(dtype=float),
         )
-
-        test_precision = precision_score(
-            y_test,
-            test_predictions,
-            zero_division=0,
-        )
-
-        test_recall = recall_score(
-            y_test,
-            test_predictions,
-            zero_division=0,
-        )
-
-        test_f1 = f1_score(
-            y_test,
-            test_predictions,
-            zero_division=0,
-        )
-
-        test_roc_auc = roc_auc_score(
-            y_test,
-            test_probabilities,
-        )
-
-        test_pr_auc = average_precision_score(
-            y_test,
-            test_probabilities,
-        )
-
-        # ---------------------------------------------------------
-        # 15. Log final test metrics
-        # ---------------------------------------------------------
-
+        mlflow.log_metrics(test_metrics)
         mlflow.log_metrics({
-            "test_accuracy": test_accuracy,
-            "test_precision": test_precision,
-            "test_recall": test_recall,
-            "test_f1": test_f1,
-            "test_roc_auc": test_roc_auc,
-            "test_pr_auc": test_pr_auc,
+            f"test_{key}": value
+            for key, value in test_business.items()
+            if key != "threshold"
         })
 
-        # ---------------------------------------------------------
-        # 16. Final business metrics
-        # ---------------------------------------------------------
-
-        tn, fp, fn, tp = confusion_matrix(
+        fig, ax = plt.subplots(figsize=(5, 5))
+        ConfusionMatrixDisplay.from_predictions(
             y_test,
             test_predictions,
             labels=[0, 1],
-        ).ravel()
-
-        contacts = tp + fp
-
-        expected_saved = (
-            tp * SAVE_RATE
+            ax=ax,
         )
-
-        campaign_cost = (
-            contacts * CONTACT_COST
+        ax.set_title(
+            f"Logistic Regression test confusion matrix "
+            f"(threshold={threshold:.2f})"
         )
-
-        retained_value = (
-            expected_saved
-            * RETAINED_CUSTOMER_VALUE
-        )
-
-        net_value = (
-            retained_value
-            - campaign_cost
-        )
-
-        mlflow.log_metrics({
-            "test_contacts": contacts,
-            "test_tp": tp,
-            "test_fp": fp,
-            "test_tn": tn,
-            "test_fn": fn,
-            "test_expected_saved": expected_saved,
-            "test_campaign_cost": campaign_cost,
-            "test_retained_value": retained_value,
-            "test_net_value": net_value,
-        })
-
-        # ---------------------------------------------------------
-        # 17. Log final model
-        # ---------------------------------------------------------
+        fig.tight_layout()
+        mlflow.log_figure(fig, "confusion_matrix_logistic_regression.png")
+        plt.close(fig)
 
         mlflow.sklearn.log_model(
             best_pipeline,
             name="model",
             skops_trusted_types=[
-                "xgboost.core.Booster",
-                "xgboost.sklearn.XGBClassifier",
+                "churn_ml.modeling.model.CorrelationFilter",
             ],
         )
 
-        # ---------------------------------------------------------
-        # 18. Print results
-        # ---------------------------------------------------------
-
-        print("\nFinal test results:")
-        print(f"Accuracy:  {test_accuracy:.4f}")
-        print(f"Precision: {test_precision:.4f}")
-        print(f"Recall:    {test_recall:.4f}")
-        print(f"F1:        {test_f1:.4f}")
-        print(f"ROC-AUC:   {test_roc_auc:.4f}")
-        print(f"PR-AUC:    {test_pr_auc:.4f}")
-
-        print("\nFinal business results:")
+        print(f"Best CV PR-AUC: {study.best_value:.3f}")
+        print(f"OOF PR-AUC: {oof_pr_auc:.3f}")
         print(f"Threshold: {threshold:.3f}")
-        print(f"Contacts:  {contacts}")
-        print(f"TP:        {tp}")
-        print(f"FP:        {fp}")
-        print(f"FN:        {fn}")
-        print(
-            f"Net value: €{net_value:,.2f}"
-        )
+        print(f"Test PR-AUC: {test_metrics['test_pr_auc']:.3f}")
+        print(f"Test recall: {test_metrics['test_recall']:.3%}")
+        print(f"Test precision: {test_metrics['test_precision']:.3%}")
+        print(f"Contacts: {test_business['contacts']}")
+        print(f"Estimated net value: €{test_business['net_value']:,.2f}")
 
 
 if __name__ == "__main__":

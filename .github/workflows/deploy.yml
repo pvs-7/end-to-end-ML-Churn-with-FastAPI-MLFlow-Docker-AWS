@@ -133,7 +133,7 @@ jobs:
       - name: Create model metadata
         run: |
           mkdir -p models
-          echo '{"threshold": 0.77}' > models/metadata.json
+          echo '{"threshold": 0.08}' > models/metadata.json
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
